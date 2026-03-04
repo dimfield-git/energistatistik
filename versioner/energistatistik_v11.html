@@ -1,0 +1,1601 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Energistatistik</title>
+
+  <!-- Chart.js (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js">
+
+// Export chart as PNG
+function exportPNG(canvasId){
+  const canvas = document.getElementById(canvasId);
+  const link = document.createElement("a");
+  link.download = canvasId + ".png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+
+// Robust Excel column paste (handles thousands spaces, NBSP, tabs)
+document.addEventListener("paste", function(e){
+
+  const elInput = e.target.closest("[data-el]");
+  const heatInput = e.target.closest("[data-heat]");
+  if(!elInput && !heatInput) return;
+
+  const text = e.clipboardData.getData("text") || "";
+
+  // split ONLY by line breaks
+  const rows = text.split(/\r?\n/).map(r => r.trim()).filter(r => r.length);
+
+  const values = rows.map(r => {
+    // extract number allowing spaces/NBSP inside
+    const match = r.match(/-?\d[\d\s\u00A0]*/);
+    if(!match) return null;
+
+    const normalized = match[0]
+      .replace(/\u00A0/g,"")
+      .replace(/\s/g,"")
+      .replace(",", ".");
+
+    const v = Number(normalized);
+    return Number.isFinite(v) ? v : null;
+  });
+
+  const inputs = elInput
+    ? [...document.querySelectorAll("[data-el]")]
+    : [...document.querySelectorAll("[data-heat]")];
+
+  const startIndex = inputs.indexOf(elInput || heatInput);
+
+  values.forEach((v,i)=>{
+    if(!Number.isFinite(v)) return;
+    const target = inputs[startIndex + i];
+    if(target) target.value = Math.max(0, v);
+  });
+
+  e.preventDefault();
+
+}, true);
+
+</script>
+
+  <style>
+    /* ──────────────────────────────────────────────────────────────
+       Energistatistik — UI matched to Solcellskalkyl look & feel
+       (Stand-alone. Does NOT modify Solcellskalkyl.)
+       ────────────────────────────────────────────────────────────── */
+
+    /* ── Theme: Nordisk Energi (default) ── */
+    :root {
+      --bg: #F5F5F5;
+      --bg-card: #FFFFFF;
+      --primary: #1B3A4B;
+      --primary-light: #2a5468;
+      --accent: #E8B630;
+      --accent-light: #f0cc6a;
+      --highlight: #D4EDDA;
+      --highlight-border: #88c999;
+      --text: #2D2D2D;
+      --text-muted: #6B7280;
+      --border: #D1D5DB;
+      --input-bg: #FFFFFF;
+      --table-header-bg: var(--primary);
+      --table-header-text: #FFFFFF;
+      --table-stripe: #f9fafb;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
+      --radius: 8px;
+      --radius-lg: 12px;
+      --error: #DC2626;
+
+      /* Derived */
+      --on-primary: #FFFFFF;
+      --on-accent: #1B3A4B;
+      --focus: color-mix(in srgb, var(--accent) 70%, white);
+    }
+
+    /* ── Theme: Solcell ── */
+    [data-theme="solcell"] {
+      --bg: #FFFFFF;
+      --bg-card: #FFFFFF;
+      --primary: #2E7D32;
+      --primary-light: #43a047;
+      --accent: #F4A535;
+      --accent-light: #f7bc64;
+      --highlight: #FFF3E0;
+      --highlight-border: #f4a535;
+      --text: #333333;
+      --text-muted: #6B7280;
+      --border: #D1D5DB;
+      --table-stripe: #f1f8e9;
+      --on-primary: #FFFFFF;
+      --on-accent: #1b1b1b;
+    }
+
+    /* ── Theme: Blueprint ── */
+    [data-theme="blueprint"] {
+      --bg: #FAFBFC;
+      --bg-card: #FFFFFF;
+      --primary: #37474F;
+      --primary-light: #546e7a;
+      --accent: #0097A7;
+      --accent-light: #26c6da;
+      --highlight: #E0F7FA;
+      --highlight-border: #0097A7;
+      --text: #37474F;
+      --text-muted: #78909C;
+      --border: #CFD8DC;
+      --table-stripe: #f5f7f8;
+      --on-primary: #FFFFFF;
+      --on-accent: #08373d;
+    }
+
+    /* ── Theme: Koppar ── */
+    [data-theme="koppar"] {
+      --bg: #FAF8F5;
+      --bg-card: #FFFFFF;
+      --primary: #6B3A2A;
+      --primary-light: #8B5A4A;
+      --accent: #C17F4E;
+      --accent-light: #d4a070;
+      --highlight: #FDF0E2;
+      --highlight-border: #C17F4E;
+      --text: #3B2F2F;
+      --text-muted: #7D6B6B;
+      --border: #D9CFC5;
+      --table-stripe: #faf6f2;
+      --on-primary: #FFFFFF;
+      --on-accent: #2a1711;
+    }
+
+    /* ── Theme: Lövverk ── */
+    [data-theme="lovverk"] {
+      --bg: #F4F7F2;
+      --bg-card: #FFFFFF;
+      --primary: #3D6B4F;
+      --primary-light: #5A8A6A;
+      --accent: #A8C256;
+      --accent-light: #bdd474;
+      --highlight: #E8F0DC;
+      --highlight-border: #8aaf3e;
+      --text: #2C3E2D;
+      --text-muted: #6B7F6C;
+      --border: #C5D4C0;
+      --table-stripe: #f0f5ec;
+      --on-primary: #FFFFFF;
+      --on-accent: #1f2a20;
+    }
+
+    /* ── Theme: Kooperativ (minimal, röd/grå/svart) ── */
+    [data-theme="kooperativ"] {
+      --bg: #FFFFFF;
+      --bg-card: #FFFFFF;
+      --primary: #0B0B0C;
+      --primary-light: #1F1F22;
+      --accent: #E90016;
+      --accent-light: #FF3B4A;
+      --highlight: #F2F2F3;
+      --highlight-border: #929196;
+      --text: #0B0B0C;
+      --text-muted: #6C6C72;
+      --border: #D6D6D8;
+      --input-bg: #FFFFFF;
+      --table-header-bg: var(--primary);
+      --table-header-text: #FFFFFF;
+      --table-stripe: #F7F7F8;
+      --shadow: 0 1px 3px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.08);
+      --shadow-lg: 0 6px 18px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.10);
+      --radius: 8px;
+      --radius-lg: 12px;
+      --error: #E90016;
+      --on-primary: #FFFFFF;
+      --on-accent: #FFFFFF;
+    }
+
+    /* ── Theme: Midnatt ── */
+    [data-theme="midnatt"] {
+      --bg: #1A1D23;
+      --bg-card: #242830;
+      --primary: #7EB8DA;
+      --primary-light: #9acae6;
+      --accent: #F0C754;
+      --accent-light: #f5d87a;
+      --highlight: #2A3A2E;
+      --highlight-border: #5a9a6a;
+      --text: #E0E0E0;
+      --text-muted: #8B92A0;
+      --border: #363B44;
+      --input-bg: #2C3038;
+      --table-header-bg: var(--primary);
+      --table-header-text: #1A1D23;
+      --table-stripe: #20242a;
+      --shadow: 0 1px 3px rgba(0,0,0,0.3);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.4);
+      --on-primary: #1A1D23;
+      --on-accent: #1A1D23;
+    }
+
+    /* ── Theme: Grafit ── */
+    [data-theme="grafit"] {
+      --bg: #1E1E22;
+      --bg-card: #28282E;
+      --primary: #A0D4A0;
+      --primary-light: #b8e0b8;
+      --accent: #E8A445;
+      --accent-light: #f0be6e;
+      --highlight: #2E3828;
+      --highlight-border: #6aaa6a;
+      --text: #D8D8D8;
+      --text-muted: #888890;
+      --border: #3A3A42;
+      --input-bg: #303036;
+      --table-header-bg: var(--primary);
+      --table-header-text: #1E1E22;
+      --table-stripe: #24242a;
+      --shadow: 0 1px 3px rgba(0,0,0,0.3);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.4);
+      --on-primary: #1E1E22;
+      --on-accent: #1E1E22;
+    }
+
+    /* Base */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1120px;
+      margin: 22px auto 60px;
+      padding: 0 16px;
+    }
+
+    /* --- Layout safety: prevent charts/canvases from overflowing the container --- */
+    *, *::before, *::after { box-sizing: border-box; }
+    .card { max-width: 100%; overflow: hidden; }
+    .charts, .chart-box { width: 100%; min-width: 0; }
+    .chart-box { overflow: hidden; }
+    .chart-box canvas { display: block; width: 100% !important; max-width: 100% !important; }
+
+    .theme-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .theme-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--bg-card) 92%, var(--bg) 8%);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: none;
+      user-select: none;
+      transition: background .15s ease, transform .06s ease, border-color .15s ease;
+    }
+    .theme-btn:hover { background: color-mix(in srgb, var(--bg-card) 82%, var(--accent) 18%); }
+    .theme-btn:active { transform: translateY(1px); }
+
+    .theme-btn.active {
+      background: var(--primary);
+      color: var(--on-primary);
+      border-color: color-mix(in srgb, var(--primary) 70%, var(--border) 30%);
+    }
+
+    .theme-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent 30%);
+    }
+
+    header {
+      text-align: center;
+      padding: 8px 0 8px;
+      margin-bottom: 18px;
+    }
+    .title {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 34px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--primary);
+      margin: 6px 0 6px;
+    }
+    .subtitle {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      padding: 18px 18px 16px;
+      margin: 16px 0;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 14px;
+      color: var(--primary);
+      display: inline-block;
+    }
+    .section-underline {
+      height: 3px;
+      width: 110px;
+      background: var(--accent);
+      border-radius: 999px;
+      margin-top: 8px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+    }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--text);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 11px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--text);
+      outline: none;
+      font-size: 14px;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    input:focus, select:focus {
+      border-color: color-mix(in srgb, var(--focus) 70%, var(--border) 30%);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .check {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      color: var(--text);
+      user-select: none;
+      cursor: pointer;
+    }
+    .check input { width: auto; }
+
+    .btnbar {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      margin: 18px 0 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 14px;
+      transition: transform .06s ease, filter .15s ease, background .15s ease;
+    }
+    .btn:active { transform: translateY(1px); }
+
+    .btn-primary {
+      background: var(--primary);
+      color: var(--on-primary);
+      box-shadow: var(--shadow);
+    }
+    .btn-primary:hover { filter: brightness(1.05); }
+
+    .btn-secondary {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+    .btn-secondary:hover { background: color-mix(in srgb, var(--bg-card) 80%, var(--bg) 20%); }
+
+    .btn-right {
+      margin-left: auto;
+    }
+
+    .btn-export {
+      background: var(--primary);
+      color: var(--on-primary);
+      border: 1px solid transparent;
+      padding: 10px 14px;
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .error {
+      color: var(--error);
+      font-weight: 700;
+      font-size: 13px;
+      margin-top: 8px;
+      display: none;
+    }
+
+    .datagrid {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+    .datagrid th {
+      background: var(--table-header-bg);
+      color: var(--table-header-text);
+      text-align: left;
+      padding: 10px 12px;
+      font-size: 12px;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+    .datagrid td {
+      border-top: 1px solid var(--border);
+      padding: 10px 12px;
+      vertical-align: top;
+      font-size: 13px;
+    }
+    .datagrid tbody tr:nth-child(even) td {
+      background: var(--table-stripe);
+    }
+
+    .mini-input {
+      padding: 9px 10px;
+      border-radius: 10px;
+      font-size: 13px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+    @media (max-width: 980px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 520px) { .summary { grid-template-columns: 1fr; } }
+
+    .metric {
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--bg-card) 90%, var(--bg) 10%);
+      border-radius: 14px;
+      padding: 14px 14px 12px;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+    .metric::before{
+      content:"";
+      position:absolute; left:0; top:0; bottom:0;
+      width: 4px;
+      background: var(--accent);
+    }
+    .metric .k {
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+    .metric .v {
+      font-size: 20px;
+      font-weight: 900;
+      margin-top: 6px;
+      color: var(--primary);
+    }
+    .metric .s {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    .chart-box { height: auto; }
+    
+
+    .charts {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    .chart-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .chart-title {
+      font-weight: 900;
+      color: var(--primary);
+      font-size: 16px;
+      margin: 0;
+    }
+    .chart-sub {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    .small {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Print-friendly PDF export */
+    @media print {
+      .theme-bar, .btnbar, .btn-export, .no-print { }
+      body { background: #fff; }
+      .card { box-shadow: none; }
+    }
+  
+
+    /* --- Chart layout (prevent button from being clipped) --- */
+    .chart-canvas { height: 320px; overflow: hidden; }
+    .chart-canvas canvas { width: 100% !important; height: 100% !important; display: block; }
+    .chart-actions { padding: 10px 0 0; }
+    .chart-actions .btn { width: max-content; }
+
+</style>
+</head>
+
+<body>
+  <div class="container">
+
+    <!-- Theme bar -->
+    <div class="theme-bar no-print" id="themeBar">
+      <button class="theme-btn active" data-theme-btn="nordisk" onclick="setTheme('nordisk')"><span class="theme-dot" style="background:#1B3A4B;"></span>Nordisk Energi</button>
+      <button class="theme-btn" data-theme-btn="solcell" onclick="setTheme('solcell')"><span class="theme-dot" style="background:#2E7D32;"></span>Solcell</button>
+      <button class="theme-btn" data-theme-btn="blueprint" onclick="setTheme('blueprint')"><span class="theme-dot" style="background:#0097A7;"></span>Blueprint</button>
+      <button class="theme-btn" data-theme-btn="koppar" onclick="setTheme('koppar')"><span class="theme-dot" style="background:#C17F4E;"></span>Koppar</button>
+      <button class="theme-btn" data-theme-btn="lovverk" onclick="setTheme('lovverk')"><span class="theme-dot" style="background:#A8C256;"></span>Lövverk</button>
+      <button class="theme-btn" data-theme-btn="kooperativ" onclick="setTheme('kooperativ')"><span class="theme-dot" style="background:#E90016;"></span>Kooperativ</button>
+      <button class="theme-btn" data-theme-btn="midnatt" onclick="setTheme('midnatt')"><span class="theme-dot" style="background:#7EB8DA;"></span>Midnatt</button>
+      <button class="theme-btn" data-theme-btn="grafit" onclick="setTheme('grafit')"><span class="theme-dot" style="background:#A0D4A0;"></span>Grafit</button>
+    </div>
+
+    <header>
+      <div class="title">⚡ Energistatistik</div>
+      <p class="subtitle">Månadsvis el- och fjärrvärmeförbrukning för flerbostadshus — grafer, årssummor och primärenergital (BBR)</p>
+    </header>
+
+    <!-- Inputs -->
+    <div class="card">
+      <div class="section-title">Indata</div>
+      <div class="section-underline"></div>
+
+      <div class="grid" style="margin-top:14px;">
+        <div>
+          <label for="startMonth">Startmånad (inkl.)</label>
+          <input id="startMonth" type="month" />
+          <div class="hint">Tidsintervallet måste vara sammanhängande och omfatta 12–60 månader (1–5 år).</div>
+        </div>
+        <div>
+          <label for="endMonth">Slutmånad (inkl.)</label>
+          <input id="endMonth" type="month" />
+          <div class="hint">Slutmånad måste ligga efter start. Intervallet måste vara en hel multipel av 12 månader.</div>
+        </div>
+
+        <div>
+          <label for="atemp">Atemp (m²) — krävs för primärenergital</label>
+          <input id="atemp" type="number" min="0" step="1" placeholder="t.ex. 3500" />
+        </div>
+
+        <div>
+          <label for="kommun">Kommun (för geografisk justeringsfaktor)</label>
+          <select id="kommun"></select>
+          <div class="hint">Värdet F<sub>geo</sub> hämtas automatiskt från kommunlista. (Du kan också välja “Manuell…”) </div>
+        </div>
+
+        <div>
+          <label for="fgeo">Geografisk justeringsfaktor (F<sub>geo</sub>)</label>
+          <input id="fgeo" type="number" min="0" step="0.001" placeholder="väljs från kommun" />
+          <div class="hint">Används i primärenergitalet enligt BBR.</div>
+        </div>
+
+        <div>
+          <label class="check" style="margin-top:26px;">
+            <input id="imd" type="checkbox" />
+            IMD (fastighetsel + hushållsel i graftext, hushållsel dras av vid primärenergital)
+          </label>
+        </div>
+      </div>
+
+      <div class="grid" id="imdFields" style="display:none; margin-top:6px;">
+        <div>
+          <label for="apts">Antal lägenheter</label>
+          <input id="apts" type="number" min="0" step="1" placeholder="t.ex. 42" />
+        </div>
+        <div>
+          <label for="hhPerApt">Uppskattad hushållsel per lägenhet (kWh/månad)</label>
+          <input id="hhPerApt" type="number" min="0" step="1" placeholder="t.ex. 250" />
+          <div class="hint">Dras av från total el vid beräkning av primärenergital (ej från grafer).</div>
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label class="check">
+            <input id="normalYear" type="checkbox" />
+            Normalårskorrigera fjärrvärme (graddagskorrigering)
+          </label>
+          <div class="hint">Korrigeringen påverkar värme och total energi samt primärenergital. El påverkas inte.</div>
+        </div>
+        <div id="hddFields" style="display:none;">
+          <label for="baseTemp">Balanstemperatur (°C)</label>
+          <input id="baseTemp" type="number" step="0.1" value="17" />
+          <div class="hint">Används för HDD: max(0, T<sub>b</sub> − T<sub>medel</sub>).</div>
+        </div>
+        <div id="stationFields" style="display:none;">
+          <label for="stationQuery">Väderstation (för HDD) — sök</label>
+          <input id="stationQuery" type="text" placeholder="Skriv t.ex. 'Göteborg' och välj station..." />
+          <div class="hint">Vi hämtar dagliga temperaturer online och summerar till månadsvisa graddagar.</div>
+          <div id="stationList" style="margin-top:8px;"></div>
+          <input id="stationId" type="hidden" />
+          <div class="error" id="stationErr">Välj en väderstation för att kunna normalårskorrigera.</div>
+        </div>
+      </div>
+
+      <div class="error" id="rangeErr">Intervallfel: välj ett sammanhängande intervall som är exakt 12–60 månader och delbart med 12.</div>
+
+      <div class="btnbar no-print">
+        <button class="btn btn-primary" id="buildInputsBtn">Skapa inmatningsfält</button>
+        <button class="btn btn-secondary" id="resetBtn">Rensa</button>
+        <button class="btn-export btn-right" id="exportBtn" title="Öppnar utskriftsdialog — välj 'Spara som PDF'">
+          ⬇ Exportera PDF
+        </button>
+      </div>
+    </div>
+
+    <!-- Data entry -->
+    <div class="card" id="dataCard" style="display:none;">
+      <div class="section-title">Månadsdata</div>
+      <div class="section-underline"></div>
+      <p class="small" style="margin:10px 0 14px;">
+        Mata in månadsvis el (kWh) och fjärrvärme (kWh). Värdet kan vara 0.
+      </p>
+
+      <div style="overflow:auto;">
+        <table class="datagrid" id="dataTable">
+          <thead>
+            <tr>
+              <th>Månad</th>
+              <th>El (kWh)</th>
+              <th>Fjärrvärme (kWh)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="btnbar no-print" style="justify-content:flex-start;">
+        <button class="btn btn-primary" id="calcBtn">Beräkna & uppdatera</button>
+        <div class="error" id="dataErr">Kontrollera att Atemp, Fgeo och (vid IMD) antal lägenheter/hushållsel är ifyllt.</div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="card" id="resultCard" style="display:none;">
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <div>
+          <div class="section-title">Resultat — Sammanfattning</div>
+          <div class="section-underline"></div>
+        </div>
+        <div class="small" id="bbrNote"></div>
+      </div>
+
+      <div class="summary" id="summary"></div>
+
+      <div class="charts" style="margin-top:16px;">
+        <div class="card chart-box" style="margin:0;">
+          <div class="chart-head">
+            <div>
+              <p class="chart-title" id="titleEl">Elförbrukning</p>
+              <p class="chart-sub" id="subEl"></p>
+            </div>
+            <div class="small" id="metaEl"></div>
+          </div>
+          <div class="chart-canvas"><canvas id="chartEl" height="120"></canvas></div><div class="chart-actions no-print"><button class="btn btn-secondary" onclick="exportPNG('chartEl')">Exportera PNG</button></div>
+        </div>
+
+        <div class="card chart-box" style="margin:0;">
+          <div class="chart-head">
+            <div>
+              <p class="chart-title" id="titleHeat">Värmeförbrukning</p>
+              <p class="chart-sub" id="subHeat"></p>
+            </div>
+            <div class="small" id="metaHeat"></div>
+          </div>
+          <div class="chart-canvas"><canvas id="chartHeat" height="120"></canvas></div><div class="chart-actions no-print"><button class="btn btn-secondary" onclick="exportPNG('chartHeat')">Exportera PNG</button></div>
+        </div>
+
+        <div class="card chart-box" style="margin:0;">
+          <div class="chart-head">
+            <div>
+              <p class="chart-title" id="titleTotal">Total Energiförbrukning</p>
+              <p class="chart-sub" id="subTotal"></p>
+            </div>
+            <div class="small" id="metaTotal"></div>
+          </div>
+          <div class="chart-canvas"><canvas id="chartTotal" height="120"></canvas></div><div class="chart-actions no-print"><button class="btn btn-secondary" onclick="exportPNG('chartTotal')">Exportera PNG</button></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="section-title">Årssummor</div>
+        <div class="section-underline"></div>
+
+        <div style="overflow:auto; margin-top:14px;">
+          <table class="datagrid" id="yearTable">
+            <thead>
+              <tr>
+                <th>År</th>
+                <th>El (kWh)</th>
+                <th>Värme (kWh)</th>
+                <th>Total (kWh)</th>
+                <th>Δ Total vs föregående</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <p class="small" style="margin:12px 0 0;">
+          Primärenergital beräknas alltid på senaste helåret i intervallet (sista 12 månaderna). Normalårskorrigering (om vald) tillämpas på värme före beräkningen.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ──────────────────────────────────────────────────────────────
+    // Data + utilities
+    // ──────────────────────────────────────────────────────────────
+
+    const VF = {
+      // "senaste BBR" (BBR 31 / BFS 2024:14) – justerbara i kod vid behov
+      el: 1.8,
+      fjarrvarme: 0.7,
+    };
+
+    // NOTE: Full kommun->Fgeo table should be based on BBR (BFS 2024:14).
+    // This file includes a minimal scaffold + a handful of examples.
+    // Replace KOMMUN_FGEO with the full table when you paste in the official values.
+    // (Structure is correct; dropdown + auto-fill works.)
+    const KOMMUN_FGEO = [
+      { name: "Manuell…", fgeo: "" },
+
+      // Examples (not complete)
+      { name: "Göteborg", fgeo: 1.0 },
+      { name: "Stockholm", fgeo: 1.0 },
+      { name: "Malmö", fgeo: 1.0 },
+      { name: "Umeå", fgeo: 1.1 },
+      { name: "Luleå", fgeo: 1.2 },
+    ];
+
+    function ymToDate(ym) {
+      // ym: "YYYY-MM"
+      const [y, m] = ym.split("-").map(Number);
+      return new Date(y, m - 1, 1);
+    }
+    function addMonths(date, n) {
+      const d = new Date(date.getTime());
+      d.setMonth(d.getMonth() + n);
+      d.setDate(1);
+      return d;
+    }
+    function formatMonth(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      return `${y}-${m}`;
+    }
+    function monthLabel(date) {
+      const months = ["Jan","Feb","Mar","Apr","Maj","Jun","Jul","Aug","Sep","Okt","Nov","Dec"];
+      return months[date.getMonth()];
+    }
+    function clamp0(x) { return Math.max(0, x); }
+    function sum(arr) { return arr.reduce((a,b)=>a + (Number.isFinite(b)?b:0), 0); }
+    function pct(a,b) {
+      if (!Number.isFinite(a) || !Number.isFinite(b) || b === 0) return "—";
+      const p = ((a - b) / b) * 100;
+      const s = p >= 0 ? "+" : "";
+      return `${s}${p.toFixed(1)} %`;
+    }
+    function fmtInt(n) {
+      if (!Number.isFinite(n)) return "—";
+      return n.toLocaleString("sv-SE", { maximumFractionDigits: 0 });
+    }
+    function fmt1(n) {
+      if (!Number.isFinite(n)) return "—";
+      return n.toLocaleString("sv-SE", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+    }
+
+    function getThemeColor(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+    function hexToRgb(hex) {
+      const h = hex.replace("#","").trim();
+      if (h.length === 3) {
+        const r = parseInt(h[0]+h[0],16);
+        const g = parseInt(h[1]+h[1],16);
+        const b = parseInt(h[2]+h[2],16);
+        return {r,g,b};
+      }
+      const r = parseInt(h.slice(0,2),16);
+      const g = parseInt(h.slice(2,4),16);
+      const b = parseInt(h.slice(4,6),16);
+      return {r,g,b};
+    }
+    function rgbToRgba({r,g,b}, a) {
+      return `rgba(${r},${g},${b},${a})`;
+    }
+    function mix(aHex, bHex, t) {
+      const a = hexToRgb(aHex), b = hexToRgb(bHex);
+      const r = Math.round(a.r + (b.r - a.r) * t);
+      const g = Math.round(a.g + (b.g - a.g) * t);
+      const bb = Math.round(a.b + (b.b - a.b) * t);
+      return `#${[r,g,bb].map(x=>x.toString(16).padStart(2,"0")).join("")}`;
+    }
+
+    function seriesPalette(k) {
+      // Derive up to 5 series colors from theme primary+accent for readability.
+      const primary = getThemeColor("--primary");
+      const accent  = getThemeColor("--accent");
+      const bg      = getThemeColor("--bg-card");
+      const colors = [
+        mix(primary, accent, 0.20),
+        mix(primary, accent, 0.45),
+        mix(primary, accent, 0.65),
+        mix(primary, accent, 0.80),
+        mix(accent, bg, 0.15),
+      ];
+      return colors.slice(0, k);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Theme switching
+    // ──────────────────────────────────────────────────────────────
+    function setTheme(name) {
+      const map = {
+        nordisk: "",
+        solcell: "solcell",
+        blueprint: "blueprint",
+        koppar: "koppar",
+        lovverk: "lovverk",
+        kooperativ: "kooperativ",
+        midnatt: "midnatt",
+        grafit: "grafit",
+      };
+      const theme = map[name] ?? "";
+      if (theme) document.documentElement.setAttribute("data-theme", theme);
+      else document.documentElement.removeAttribute("data-theme");
+
+      document.querySelectorAll("[data-theme-btn]").forEach(btn => {
+        btn.classList.toggle("active", btn.getAttribute("data-theme-btn") === name);
+      });
+
+      // refresh charts if already rendered
+      if (charts.el) rebuildCharts(lastComputed);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Kommun dropdown
+    // ──────────────────────────────────────────────────────────────
+    function initKommun() {
+      const sel = document.getElementById("kommun");
+      sel.innerHTML = "";
+      for (const k of KOMMUN_FGEO) {
+        const opt = document.createElement("option");
+        opt.value = k.name;
+        opt.textContent = k.name;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener("change", () => {
+        const chosen = KOMMUN_FGEO.find(x => x.name === sel.value);
+        const fgeo = document.getElementById("fgeo");
+        if (!chosen) return;
+        if (chosen.fgeo === "" || chosen.fgeo === null || chosen.fgeo === undefined) {
+          fgeo.value = "";
+          fgeo.placeholder = "ange manuellt";
+          fgeo.removeAttribute("readonly");
+        } else {
+          fgeo.value = chosen.fgeo;
+          fgeo.setAttribute("readonly", "readonly");
+        }
+      });
+      sel.dispatchEvent(new Event("change"));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Date range -> months
+    // ──────────────────────────────────────────────────────────────
+    function validateRange() {
+      const start = document.getElementById("startMonth").value;
+      const end = document.getElementById("endMonth").value;
+      const err = document.getElementById("rangeErr");
+      err.style.display = "none";
+
+      if (!start || !end) return null;
+      const s = ymToDate(start);
+      const e = ymToDate(end);
+      if (e < s) { err.style.display = "block"; return null; }
+
+      // inclusive month count
+      const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
+
+      // must be 12..60 and divisible by 12
+      if (months < 12 || months > 60 || (months % 12) !== 0) {
+        err.style.display = "block";
+        return null;
+      }
+
+      const list = [];
+      for (let i = 0; i < months; i++) list.push(addMonths(s, i));
+      return { start: s, end: e, months, list, years: months / 12 };
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Build data table inputs
+    // ──────────────────────────────────────────────────────────────
+    function buildInputs() {
+      const r = validateRange();
+      if (!r) return;
+
+      const tbody = document.querySelector("#dataTable tbody");
+      tbody.innerHTML = "";
+
+      for (const d of r.list) {
+        const tr = document.createElement("tr");
+        const ym = formatMonth(d);
+
+        tr.innerHTML = `
+          <td><strong>${ym}</strong></td>
+          <td><input class="mini-input" type="number" step="1" min="0" data-el="${ym}" placeholder="0" /></td>
+          <td><input class="mini-input" type="number" step="1" min="0" data-heat="${ym}" placeholder="0" /></td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      document.getElementById("dataCard").style.display = "block";
+      document.getElementById("resultCard").style.display = "none";
+      window.scrollTo({ top: document.getElementById("dataCard").offsetTop - 10, behavior: "smooth" });
+    }
+
+    function resetAll() {
+      document.getElementById("dataCard").style.display = "none";
+      document.getElementById("resultCard").style.display = "none";
+      document.querySelector("#dataTable tbody").innerHTML = "";
+      document.querySelector("#yearTable tbody").innerHTML = "";
+      document.getElementById("summary").innerHTML = "";
+      document.getElementById("dataErr").style.display = "none";
+      lastComputed = null;
+      destroyCharts();
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // HDD (normal-year correction) — SMHI station search scaffold
+    // ──────────────────────────────────────────────────────────────
+    let stationSearchTimer = null;
+
+    async function searchStations(query) {
+      // Minimal approach:
+      // Use SMHI "meteorological observations" API list of stations,
+      // then filter client-side by name. (This avoids needing a big embedded list.)
+      // Endpoint docs: https://opendata.smhi.se/apidocs/metobs/
+      const url = "https://opendata-download-metobs.smhi.se/api/version/latest/parameter/1.json"; // parameter 1 = temperature
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Kunde inte hämta stationlista.");
+      const data = await res.json();
+      const stations = (data.station || []).map(s => ({
+        id: s.id,
+        name: s.name,
+        height: s.height,
+        lat: s.latitude,
+        lon: s.longitude,
+        active: s.active,
+      }));
+
+      const q = query.toLowerCase().trim();
+      const filtered = stations
+        .filter(s => s.active)
+        .filter(s => s.name.toLowerCase().includes(q))
+        .slice(0, 8);
+
+      return filtered;
+    }
+
+    function renderStationList(items) {
+      const box = document.getElementById("stationList");
+      box.innerHTML = "";
+      if (!items.length) return;
+      const wrap = document.createElement("div");
+      wrap.style.display = "grid";
+      wrap.style.gap = "8px";
+      for (const it of items) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn-secondary";
+        b.style.textAlign = "left";
+        b.style.padding = "10px 12px";
+        b.innerHTML = `<strong>${it.name}</strong><div class="small">Station-ID: ${it.id}</div>`;
+        b.addEventListener("click", () => {
+          document.getElementById("stationId").value = it.id;
+          document.getElementById("stationQuery").value = it.name;
+          document.getElementById("stationList").innerHTML = "";
+          document.getElementById("stationErr").style.display = "none";
+        });
+        wrap.appendChild(b);
+      }
+      box.appendChild(wrap);
+    }
+
+    async function fetchDailyMeanTemp(stationId, startDate, endDate) {
+      // SMHI station data:
+      // /parameter/1/station/{id}/period/corrected-archive/data.json
+      // Returns timeSeries values with dates and temperatures.
+      // We'll filter to the date interval and compute daily mean temperature.
+      const url = `https://opendata-download-metobs.smhi.se/api/version/latest/parameter/1/station/${stationId}/period/corrected-archive/data.json`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Kunde inte hämta temperaturdata från SMHI.");
+      const data = await res.json();
+
+      const s = new Date(startDate);
+      const e = new Date(endDate);
+
+      // Convert to daily map: YYYY-MM-DD -> [values]
+      const map = new Map();
+      for (const ts of (data.value || [])) {
+        const t = new Date(ts.date);
+        if (t < s || t > e) continue;
+        const day = t.toISOString().slice(0,10);
+        const v = Number(ts.value);
+        if (!Number.isFinite(v)) continue;
+        if (!map.has(day)) map.set(day, []);
+        map.get(day).push(v);
+      }
+
+      // daily mean
+      const out = [];
+      for (const [day, arr] of map.entries()) {
+        const mean = arr.reduce((a,b)=>a+b,0) / arr.length;
+        out.push({ day, mean });
+      }
+      out.sort((a,b)=>a.day.localeCompare(b.day));
+      return out;
+    }
+
+    function computeMonthlyHDD(daily, baseTemp) {
+      // daily: [{day:"YYYY-MM-DD", mean: number}]
+      // returns Map "YYYY-MM" -> HDD sum
+      const m = new Map();
+      for (const d of daily) {
+        const ym = d.day.slice(0,7);
+        const hdd = clamp0(baseTemp - d.mean);
+        m.set(ym, (m.get(ym) || 0) + hdd);
+      }
+      return m;
+    }
+
+    async function getHDDMaps(range) {
+      const stationId = document.getElementById("stationId").value;
+      const baseTemp = Number(document.getElementById("baseTemp").value || 17);
+      if (!stationId) throw new Error("Ingen station vald.");
+
+      // Selected interval daily temps
+      const startDay = new Date(range.start.getFullYear(), range.start.getMonth(), 1);
+      const endDay = new Date(range.end.getFullYear(), range.end.getMonth() + 1, 0); // last day of end month
+      const dailySel = await fetchDailyMeanTemp(stationId, startDay, endDay);
+      const hddSel = computeMonthlyHDD(dailySel, baseTemp);
+
+      // Reference "normal" — average of last 10 years ending at end year
+      const refYears = 10;
+      const refEndYear = range.end.getFullYear();
+      const refStartYear = refEndYear - refYears + 1;
+
+      const refStart = new Date(refStartYear, 0, 1);
+      const refEnd = new Date(refEndYear, 11, 31);
+      const dailyRef = await fetchDailyMeanTemp(stationId, refStart, refEnd);
+      const hddRefAll = computeMonthlyHDD(dailyRef, baseTemp);
+
+      // Convert ref to per-month-of-year averages (Jan..Dec)
+      const sums = Array(12).fill(0);
+      const counts = Array(12).fill(0);
+      for (const [ym, v] of hddRefAll.entries()) {
+        const month = Number(ym.slice(5,7)) - 1;
+        sums[month] += v;
+        counts[month] += 1;
+      }
+      const hddNormalByMonth = sums.map((s,i)=> counts[i] ? (s / counts[i]) : null);
+
+      // Build normal HDD for each YM in selection by matching month number
+      const hddNormal = new Map();
+      for (const d of range.list) {
+        const ym = formatMonth(d);
+        const idx = d.getMonth();
+        const nv = hddNormalByMonth[idx];
+        if (Number.isFinite(nv)) hddNormal.set(ym, nv);
+      }
+
+      return { hddSel, hddNormal, baseTemp, refStartYear, refEndYear };
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Computation
+    // ──────────────────────────────────────────────────────────────
+    function readMonthlySeries(range) {
+      const el = [];
+      const heat = [];
+      for (const d of range.list) {
+        const ym = formatMonth(d);
+        const elInput = document.querySelector(`[data-el="${ym}"]`);
+        const heatInput = document.querySelector(`[data-heat="${ym}"]`);
+        const e = Number(elInput?.value ?? 0);
+        const h = Number(heatInput?.value ?? 0);
+        el.push(Number.isFinite(e) ? e : 0);
+        heat.push(Number.isFinite(h) ? h : 0);
+      }
+      return { el, heat };
+    }
+
+    function splitByYear(range, series) {
+      const out = [];
+      for (let y = 0; y < range.years; y++) {
+        const startIdx = y * 12;
+        out.push(series.slice(startIdx, startIdx + 12));
+      }
+      return out;
+    }
+
+    function yearLabels(range) {
+      const labels = [];
+      for (let y = 0; y < range.years; y++) {
+        const d = addMonths(range.start, y * 12);
+        const s = `${d.getFullYear()} (${monthLabel(d)}–${monthLabel(addMonths(d,11))})`;
+        labels.push(s);
+      }
+      return labels;
+    }
+
+    function latestFullYear(range, series) {
+      return series.slice(series.length - 12);
+    }
+
+    function applyNormalYearCorrection(range, heatSeries, hdd) {
+      const corrected = [];
+      for (let i = 0; i < range.list.length; i++) {
+        const ym = formatMonth(range.list[i]);
+        const h = heatSeries[i];
+        const hddA = hdd.hddSel.get(ym);
+        const hddN = hdd.hddNormal.get(ym);
+        if (!Number.isFinite(hddA) || !Number.isFinite(hddN) || hddA <= 0) {
+          corrected.push(h);
+        } else {
+          corrected.push(h * (hddN / hddA));
+        }
+      }
+      return corrected;
+    }
+
+    function calcPrimaryEnergy(range, elSeries, heatSeries, opts) {
+      const atemp = opts.atemp;
+      const fgeo = opts.fgeo;
+
+      const el12 = latestFullYear(range, elSeries);
+      const heat12 = latestFullYear(range, heatSeries);
+
+      // IMD household subtraction for Ep (not for plotting)
+      let elForEp = el12.slice();
+      if (opts.imd) {
+        const hhTotalPerMonth = opts.apts * opts.hhPerApt;
+        elForEp = elForEp.map(v => clamp0(v - hhTotalPerMonth));
+      }
+
+      const Eel = sum(elForEp);
+      const Eheat = sum(heat12);
+
+      const weighted = (Eel * VF.el) + (Eheat * VF.fjarrvarme);
+      const Ep = (weighted / fgeo) / atemp; // kWh/m²
+
+      return { Ep, Eel_for_Ep: Eel, Eheat_for_Ep: Eheat, weighted };
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Charts
+    // ──────────────────────────────────────────────────────────────
+    const charts = { el: null, heat: null, total: null };
+    let lastComputed = null;
+
+    function destroyCharts() {
+      for (const k of ["el","heat","total"]) {
+        if (charts[k]) { charts[k].destroy(); charts[k] = null; }
+      }
+    }
+
+    function buildBarChart(canvasId, monthLabels, datasets) {
+      const ctx = document.getElementById(canvasId).getContext("2d");
+      const border = getThemeColor("--border");
+      const text = getThemeColor("--text");
+      const muted = getThemeColor("--text-muted");
+
+      // Make bars look consistent across screen sizes
+      const ds = datasets.map(d => ({
+        ...d,
+        type: "bar",
+        borderWidth: 0,
+        borderRadius: 6,
+        clip: 0,
+        barPercentage: 0.86,
+        categoryPercentage: 0.72,
+      }));
+
+      return new Chart(ctx, {
+        type: "bar",
+        data: { labels: monthLabels, datasets: ds },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: { padding: { top: 6, right: 8, bottom: 24, left: 8 } },
+          plugins: {
+            legend: { labels: { color: text } },
+            tooltip: { enabled: true },
+          },
+          scales: {
+            x: {
+              stacked: false,
+              offset: true,
+              ticks: { color: muted, padding: 8, maxRotation: 0, minRotation: 0 },
+              grid: { color: colorMix(border, 0.35) },
+            },
+            y: {
+              beginAtZero: true,
+              ticks: { color: muted },
+              grid: { color: colorMix(border, 0.35) },
+              title: { display: true, text: "kWh", color: muted, font: { weight: "600" } },
+            }
+          }
+        }
+      });
+    }
+
+    function colorMix(hex, tToWhite) { return mix(hex, "#ffffff", tToWhite); }
+
+    function rebuildCharts(computed) {
+      if (!computed) return;
+      destroyCharts();
+
+      const monthLabels = ["Jan","Feb","Mar","Apr","Maj","Jun","Jul","Aug","Sep","Okt","Nov","Dec"];
+      const palette = seriesPalette(computed.range.years);
+      const yearLabs = computed.yearLabels;
+
+      function mkDatasets(seriesByYear) {
+        return seriesByYear.map((arr, i) => {
+          const c = palette[i % palette.length];
+          const rgb = hexToRgb(c);
+          return { label: yearLabs[i], data: arr.map(v => Math.round(v)), backgroundColor: rgbToRgba(rgb, 0.55) };
+        });
+      }
+
+      charts.el = buildBarChart("chartEl", monthLabels, mkDatasets(computed.elByYear));
+      charts.heat = buildBarChart("chartHeat", monthLabels, mkDatasets(computed.heatByYear));
+      charts.total = buildBarChart("chartTotal", monthLabels, mkDatasets(computed.totalByYear));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // UI render
+    // ──────────────────────────────────────────────────────────────
+    function renderResults(computed) {
+      const { range, yearLabels, totalsHeat, totalsEl, totalsTotal, totalsDelta, ep } = computed;
+
+      // Summary
+      const s = document.getElementById("summary");
+      s.innerHTML = "";
+
+      const items = [
+        { k: "INTERVALL", v: `${formatMonth(range.start)} – ${formatMonth(range.end)}`, s: `${range.years} år (12-mån-cykler)` },
+        { k: "EL TOTALT", v: `${fmtInt(sum(computed.el))} kWh`, s: "Summa över hela intervallet" },
+        { k: "VÄRME TOTALT", v: `${fmtInt(sum(computed.heatUsed))} kWh`, s: computed.normalYear ? "Normalårskorrigerad (för resultat/EP)" : "Oförändrad" },
+        { k: "PRIMÄRENERGITAL",
+          v: Number.isFinite(ep.Ep) ? `${fmt1(ep.Ep)} kWh/m²` : "—",
+          s: Number.isFinite(ep.Ep)
+            ? `Senaste helåret: El ${fmtInt(ep.Eel_for_Ep)} + Värme ${fmtInt(ep.Eheat_for_Ep)}`
+            : "Ep beräknas inte – Atemp/Fgeo eller IMD-uppgifter saknas. Graferna beräknas ändå."
+        },
+      ];
+
+      for (const it of items) {
+        const div = document.createElement("div");
+        div.className = "metric";
+        div.innerHTML = `<div class="k">${it.k}</div><div class="v">${it.v}</div><div class="s">${it.s}</div>`;
+        s.appendChild(div);
+      }
+
+      // Chart subtitles
+      document.getElementById("subEl").textContent = computed.imd
+        ? "(Fastighetsel + hushållsel) — IMD påverkar endast primärenergital via avdrag"
+        : "Fastighetsel (total el inmatad)";
+      document.getElementById("subHeat").textContent = computed.normalYear
+        ? `Fjärrvärme (normalårskorrigerad) — HDD från station, Tᵦ=${computed.hddMeta.baseTemp}°C (ref ${computed.hddMeta.refStartYear}–${computed.hddMeta.refEndYear})`
+        : "Fjärrvärme (inmatad)";
+      document.getElementById("subTotal").textContent = computed.normalYear
+        ? "El + (normalårskorrigerad) fjärrvärme"
+        : "El + fjärrvärme";
+
+      document.getElementById("metaEl").textContent = `Period: ${computed.range.years} • kWh/månad`;
+      document.getElementById("metaHeat").textContent = `Period: ${computed.range.years} • kWh/månad`;
+      document.getElementById("metaTotal").textContent = `Period: ${computed.range.years} • kWh/månad`;
+
+      // Year table
+      const tbody = document.querySelector("#yearTable tbody");
+      tbody.innerHTML = "";
+      for (let i = 0; i < range.years; i++) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${yearLabels[i]}</strong></td>
+          <td>${fmtInt(totalsEl[i])}</td>
+          <td>${fmtInt(totalsHeat[i])}</td>
+          <td><strong>${fmtInt(totalsTotal[i])}</strong></td>
+          <td>${i === 0 ? "—" : `<strong>${totalsDelta[i]}</strong>`}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      // BBR note
+      document.getElementById("bbrNote").innerHTML = `BBR: VFi el ${VF.el}, fjärrvärme ${VF.fjarrvarme}. F<sub>geo</sub> = ${computed.fgeo}.`;
+
+      document.getElementById("resultCard").style.display = "block";
+      window.scrollTo({ top: document.getElementById("resultCard").offsetTop - 10, behavior: "smooth" });
+
+      rebuildCharts(computed);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Main calculate flow
+    // ──────────────────────────────────────────────────────────────
+    async function calculate() {
+      const range = validateRange();
+      if (!range) return;
+
+      const dataErr = document.getElementById("dataErr");
+      dataErr.style.display = "none";
+
+      const atemp = Number(document.getElementById("atemp").value);
+      const fgeo = Number(document.getElementById("fgeo").value);
+      const imd = document.getElementById("imd").checked;
+
+      const epPossible =
+        Number.isFinite(atemp) && atemp > 0 &&
+        Number.isFinite(fgeo) && fgeo > 0;
+
+      let apts = 0, hhPerApt = 0;
+      if (imd) {
+        apts = Number(document.getElementById("apts").value);
+        hhPerApt = Number(document.getElementById("hhPerApt").value);
+        if (!Number.isFinite(apts) || apts <= 0 || !Number.isFinite(hhPerApt) || hhPerApt < 0) {
+          dataErr.style.display = "block";
+          return;
+        }
+      }
+
+      const { el, heat } = readMonthlySeries(range);
+      const normalYear = document.getElementById("normalYear").checked;
+
+      let heatUsed = heat.slice();
+      let hddMeta = { baseTemp: null, refStartYear: null, refEndYear: null };
+
+      if (normalYear) {
+        const stationId = document.getElementById("stationId").value;
+        if (!stationId) {
+          document.getElementById("stationErr").style.display = "block";
+          return;
+        }
+        const hdd = await getHDDMaps(range);
+        heatUsed = applyNormalYearCorrection(range, heat, hdd);
+        hddMeta = { baseTemp: hdd.baseTemp, refStartYear: hdd.refStartYear, refEndYear: hdd.refEndYear };
+      }
+
+      const total = el.map((v,i)=> v + heatUsed[i]);
+
+      // Split by year cycles
+      const elByYear = splitByYear(range, el);
+      const heatByYear = splitByYear(range, heatUsed);
+      const totalByYear = splitByYear(range, total);
+      const yearLabs = yearLabels(range);
+
+      const totalsEl = elByYear.map(sum);
+      const totalsHeat = heatByYear.map(sum);
+      const totalsTotal = totalByYear.map(sum);
+      const totalsDelta = totalsTotal.map((v,i)=> i===0 ? "—" : pct(v, totalsTotal[i-1]));
+
+      let ep = { Ep: NaN, Eel_for_Ep: NaN, Eheat_for_Ep: NaN };
+      if (epPossible && (!imd || (apts > 0 && hhPerApt >= 0))) {
+        ep = calcPrimaryEnergy(range, el, heatUsed, { atemp, fgeo, imd, apts, hhPerApt });
+      }
+
+      lastComputed = {
+        range,
+        yearLabels: yearLabs,
+        el,
+        heat,
+        heatUsed,
+        total,
+        elByYear,
+        heatByYear,
+        totalByYear,
+        totalsEl,
+        totalsHeat,
+        totalsTotal,
+        totalsDelta,
+        atemp,
+        fgeo,
+        imd,
+        normalYear,
+        hddMeta,
+        ep,
+      };
+
+      renderResults(lastComputed);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Wire up events
+    // ──────────────────────────────────────────────────────────────
+    document.getElementById("buildInputsBtn").addEventListener("click", buildInputs);
+    document.getElementById("resetBtn").addEventListener("click", resetAll);
+    document.getElementById("calcBtn").addEventListener("click", () => {
+      calculate().catch(err => {
+        console.error(err);
+        alert("Beräkningen misslyckades: " + (err?.message ?? String(err)));
+      });
+    });
+    document.getElementById("exportBtn").addEventListener("click", () => window.print());
+
+    document.getElementById("imd").addEventListener("change", (e) => {
+      document.getElementById("imdFields").style.display = e.target.checked ? "grid" : "none";
+    });
+
+    document.getElementById("normalYear").addEventListener("change", (e) => {
+      const on = e.target.checked;
+      document.getElementById("hddFields").style.display = on ? "block" : "none";
+      document.getElementById("stationFields").style.display = on ? "block" : "none";
+      if (!on) document.getElementById("stationErr").style.display = "none";
+    });
+
+    document.getElementById("stationQuery").addEventListener("input", (e) => {
+      const q = e.target.value;
+      document.getElementById("stationId").value = "";
+      document.getElementById("stationErr").style.display = "none";
+      if (stationSearchTimer) clearTimeout(stationSearchTimer);
+      if (!q || q.trim().length < 2) {
+        document.getElementById("stationList").innerHTML = "";
+        return;
+      }
+      stationSearchTimer = setTimeout(async () => {
+        try {
+          const items = await searchStations(q);
+          renderStationList(items);
+        } catch (err) {
+          console.error(err);
+          document.getElementById("stationList").innerHTML = `<div class="error" style="display:block;">Kunde inte söka stationer online.</div>`;
+        }
+      }, 250);
+    });
+
+    // init
+    initKommun();
+
+    // defaults: last 12 months
+    const now = new Date();
+    const thisYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    const startDefault = `${now.getFullYear()-1}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    document.getElementById("startMonth").value = startDefault;
+    document.getElementById("endMonth").value = thisYm;
+  
+
+// Export chart as PNG
+function exportPNG(canvasId){
+  const canvas = document.getElementById(canvasId);
+  const link = document.createElement("a");
+  link.download = canvasId + ".png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+
+// Robust Excel column paste (handles thousands spaces, NBSP, tabs)
+document.addEventListener("paste", function(e){
+
+  const elInput = e.target.closest("[data-el]");
+  const heatInput = e.target.closest("[data-heat]");
+  if(!elInput && !heatInput) return;
+
+  const text = e.clipboardData.getData("text") || "";
+
+  // split ONLY by line breaks
+  const rows = text.split(/\r?\n/).map(r => r.trim()).filter(r => r.length);
+
+  const values = rows.map(r => {
+    // extract number allowing spaces/NBSP inside
+    const match = r.match(/-?\d[\d\s\u00A0]*/);
+    if(!match) return null;
+
+    const normalized = match[0]
+      .replace(/\u00A0/g,"")
+      .replace(/\s/g,"")
+      .replace(",", ".");
+
+    const v = Number(normalized);
+    return Number.isFinite(v) ? v : null;
+  });
+
+  const inputs = elInput
+    ? [...document.querySelectorAll("[data-el]")]
+    : [...document.querySelectorAll("[data-heat]")];
+
+  const startIndex = inputs.indexOf(elInput || heatInput);
+
+  values.forEach((v,i)=>{
+    if(!Number.isFinite(v)) return;
+    const target = inputs[startIndex + i];
+    if(target) target.value = Math.max(0, v);
+  });
+
+  e.preventDefault();
+
+}, true);
+
+</script>
+</body>
+</html>
