@@ -133,4 +133,4 @@ Tidigare versioner av verktyget finns i mappen:
 
 ## Licens
 
-Fri att använda inom föreningar, energiarbete och analys.
+GPL-3.0
